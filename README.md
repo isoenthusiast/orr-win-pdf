@@ -309,6 +309,16 @@ Two practical notes:
 
 ---
 
+## Reporting a security problem
+
+**Please don't open a public issue for a security bug.** Use GitHub's private
+reporting instead — **Security ▸ Report a vulnerability** on this repository
+— which opens a private thread between you and the maintainer, so a fix can
+be agreed and shipped before anything is public. The full policy is in
+[`.github/SECURITY.md`](.github/SECURITY.md).
+
+---
+
 ## Licence
 
 **GNU Affero General Public License v3.0 or later** — the full text is in

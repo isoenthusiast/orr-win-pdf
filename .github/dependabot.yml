@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Keep PyMuPDF and Pillow current - they do the PDF and image work, so a
+  # security fix in either is worth taking promptly.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # The workflow pins actions to commit SHAs, so it needs the bumps too.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
