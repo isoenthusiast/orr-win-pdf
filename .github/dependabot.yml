@@ -14,3 +14,9 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      # init and analyze must move together: CodeQL refuses to run if the
+      # workflow mixes action versions, so a split bump always fails.
+      codeql:
+        patterns:
+          - "github/codeql-action*"
