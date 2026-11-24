@@ -1,0 +1,4 @@
+# Pinned exactly, so a rebuild always produces the same binary.
+# Both were the latest upstream release at the time of the v1.0.0 build.
+pymupdf==2.1
+pillow==13.0.0

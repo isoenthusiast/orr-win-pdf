@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+ui_screenshot.png
+ui_empty.png
+exe_screenshot.png
+demo_signed_preview.png
+build_selftest.pdf
