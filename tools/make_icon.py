@@ -53,10 +53,11 @@ def draw_icon(size: int) -> Image.Image:
 
 
 def main() -> None:
-    frames = [draw_icon(s) for s in SIZES]
-    frames[0].save(OUT, format="ICO",
-                   sizes=[(s, s) for s in SIZES],
-                   append_images=frames[1:])
+    # Save the largest drawing and let Pillow work down to each size.  Saving
+    # the smallest one as the base would leave the .ico with a single 16x16
+    # frame, because Pillow will not scale an image up.
+    largest = draw_icon(max(SIZES))
+    largest.save(OUT, format="ICO", sizes=[(s, s) for s in SIZES])
     print("wrote", OUT)
 
 

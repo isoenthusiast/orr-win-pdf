@@ -492,12 +492,33 @@ class InteractionTest(ClickTestCase):
         app.update()
         self.assertIsNone(app.doc)
 
+        original = app._drop_target
         target = dnd.DropTarget(0)
         target.pending.append(self.pdf)
         app._drop_target = target
-        app._collect_drops()
-        app.update()
-        self.assertIsNotNone(app.doc)
+        try:
+            app._collect_drops()
+            app.update()
+            self.assertIsNotNone(app.doc)
+        finally:
+            app._drop_target = original
+
+    def test_22_the_real_window_accepts_drops(self):
+        """Windows agrees to deliver drops onto this window."""
+        app = self.app
+        target = getattr(app, "_drop_target", None)
+        self.assertIsNotNone(target, "the window did not accept drops")
+        self.assertTrue(target._registered)
+
+    def test_23_another_window_can_accept_drops_too(self):
+        """The registration works on a fresh window as well."""
+        from pdfedit import dnd
+        win = tk.Toplevel(self.app)
+        win.update()
+        target = dnd.install(win)
+        self.assertIsNotNone(target, "RegisterDragDrop was refused")
+        target.unregister()
+        win.destroy()
 
 
 if __name__ == "__main__":

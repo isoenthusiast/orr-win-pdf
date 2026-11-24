@@ -382,14 +382,14 @@ Two practical notes:
 .\.venv\Scripts\python -m unittest discover -s tests -v
 ```
 
-75 tests, ~3 seconds:
+77 tests, ~3 seconds:
 
 * **16 engine tests** — the exported PDF really contains the text/image/marks,
   the source file is untouched, exporting twice is idempotent, every mark
   lands **exactly** where it was clicked (including on `/Rotate 90` pages, see
   `docs/ROTATION.md`), a turned page is saved turned, and the preview matches
   the export pixel for pixel.
-* **21 click-by-click tests** — these drive the *real* Tk bindings with
+* **23 click-by-click tests** — these drive the *real* Tk bindings with
   `event_generate`, the same path a mouse takes, and assert the state after
   every single click: click to select (never to append), click empty space to
   append, drag to move, drag the corner handle to resize, `Del` to delete,

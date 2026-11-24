@@ -29,9 +29,23 @@ TYMED_HGLOBAL = 1
 DROPEFFECT_COPY = 1
 DRAGDROP_S_DROP = 1
 DRAGDROP_S_CANCEL = 2
+COINIT_APARTMENTTHREADED = 0x2
+REGDB_E_CLASSNOTREG = 0x80040154
 
 S_OK = 0
 E_NOTIMPL = 0x80004001
+E_NOINTERFACE = 0x80004002
+
+# IID_IDropTarget {00000122-0000-0000-C000-000000000046}
+IID_IDROP_TARGET = bytes([
+    0x22, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46,
+])
+# IID_IUnknown {00000000-0000-0000-C000-000000000046}
+IID_IUNKNOWN = bytes([
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46,
+])
 
 HRESULT = ctypes.c_long
 ULONG = ctypes.c_ulong
@@ -172,6 +186,7 @@ class DropTarget:
         self.hovering = False
         self._lock = threading.Lock()
         self._registered = False
+        self._com_initialised = False
         self._object = _Target()
         self._vtbl = _IDropTargetVtbl()
 
@@ -195,9 +210,21 @@ class DropTarget:
         self._object.lpVtbl = ctypes.pointer(self._vtbl)
 
     # -- COM boilerplate ---------------------------------------------
-    def _query_interface(self, _this, _iid, out):
-        out[0] = None
-        return E_NOTIMPL
+    def _query_interface(self, this, iid, out):
+        """Hand out this object for IDropTarget (and IUnknown).
+
+        RegisterDragDrop calls this first, so it has to work - a failure
+        here is reported as a puzzling "not enough memory".
+        """
+        try:
+            wanted = ctypes.string_at(iid, 16)
+        except Exception:
+            wanted = b""
+        if wanted not in (IID_IDROP_TARGET, IID_IUNKNOWN):
+            out[0] = None
+            return E_NOINTERFACE
+        out[0] = this
+        return S_OK
 
     def _add_ref(self, _this):
         return 1
@@ -240,6 +267,17 @@ class DropTarget:
         if os.name != "nt":
             return False
         try:
+            # OLE drag and drop needs OleInitialize, not just CoInitializeEx:
+            # it also installs the OLE message filter that the drop
+            # machinery talks through.  Without it RegisterDragDrop fails
+            # with a misleading "not enough memory".
+            result = ole32.OleInitialize(None)
+            if result in (0, 1):           # S_OK, S_FALSE
+                self._com_initialised = True
+            elif result == REGDB_E_CLASSNOTREG:
+                # The message filter could not be created, but the drop
+                # target itself may still work.
+                pass
             ole32.RegisterDragDrop(wintypes.HWND(self.hwnd),
                                    ctypes.cast(ctypes.byref(self._object), LPV),
                                    0)
@@ -257,6 +295,12 @@ class DropTarget:
             ole32.RevokeDragDrop(wintypes.HWND(self.hwnd))
         except Exception:
             pass
+        if self._com_initialised:
+            self._com_initialised = False
+            try:
+                ole32.OleUninitialize()
+            except Exception:
+                pass
 
     def take(self) -> list[str]:
         """The files dropped since the last call."""
