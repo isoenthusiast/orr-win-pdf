@@ -9,6 +9,7 @@ Only the PyMuPDF *binaries* are collected: the package also ships ~51 MB of
 ONNX layout models and C headers that this app never touches.
 """
 import os
+import sys
 
 # PyInstaller 6.x renamed collect_binaries() to collect_dynamic_libs()
 try:
@@ -25,10 +26,36 @@ _DLL = (".pyd", ".dll", ".so", ".dylib")
 pymupdf_binaries = [(src, dest) for src, dest in _collect_binaries("pymupdf")
                      if src.lower().endswith(_DLL)]
 
+
+def _vc_runtime():
+    """The Microsoft Visual C++ runtime, which Windows does NOT ship.
+
+    MuPDF's mupdfcpp64.dll is C++, so it imports MSVCP140.dll.  Windows 11
+    only has that file on a machine where somebody installed the VC++
+    redistributable, so without this the app dies at launch on a clean PC
+    with "MSVCP140.dll was not found".
+
+    The redistributable permits shipping these DLLs with an application, and
+    app-local deployment of them is exactly what the redistributable does.
+    """
+    found = []
+    for name in ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"):
+        for folder in (sys.prefix, sys.base_prefix,
+                       r"C:\Windows\System32"):
+            src = os.path.join(folder, name)
+            if os.path.exists(src):
+                found.append((src, "."))
+                break
+        else:
+            print(f"WARNING: {name} was not found - the build will not run "
+                  f"on a PC without the Visual C++ redistributable")
+    return found
+
+
 a = Analysis(
     [os.path.join(ROOT, "app.py")],
     pathex=[ROOT],
-    binaries=pymupdf_binaries,
+    binaries=pymupdf_binaries + _vc_runtime(),
     datas=[(os.path.join(ROOT, "app.ico"), ".")],
     hiddenimports=[
         "PIL.ImageTk",

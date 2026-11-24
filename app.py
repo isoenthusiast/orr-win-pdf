@@ -27,7 +27,11 @@ import pymupdf
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from pdfedit import assoc  # noqa: E402
+from pdfedit import dnd  # noqa: E402
+from pdfedit import prefs  # noqa: E402
 from pdfedit import theme  # noqa: E402
+from pdfedit.dialog import DefaultAppPrompt, DefaultAppResult  # noqa: E402
 from pdfedit.engine import (  # noqa: E402
     CHECK,
     CROSS,
@@ -62,6 +66,42 @@ HANDLE = 6
 PAD = 16
 
 
+def _saved_scale() -> float:
+    """The interface text size the user last chose.
+
+    Anything outside the allowed range is ignored, so a hand-edited
+    settings file cannot make the app unusable.
+    """
+    default = theme.SCALE_STEPS[1][1]
+    try:
+        value = float(prefs.get("interface_scale", default))
+    except (TypeError, ValueError):
+        return default
+    return max(0.75, min(2.0, value))
+
+
+def _pdf_error_message(path: str, exc: Exception) -> str:
+    """Say what went wrong in words a person can act on."""
+    text = str(exc)
+    low = text.lower()
+    name = os.path.basename(path)
+    if "password" in low or "encrypted" in low:
+        return (f"{name} is protected by a password.\n\n"
+                "Open it in a reader that supports passwords, save an "
+                "unprotected copy, and open that here.")
+    if isinstance(exc, FileNotFoundError):
+        return f"{name} no longer exists.\n\nIt may have been moved or deleted."
+    if isinstance(exc, PermissionError):
+        return (f"Windows will not let the app read {name}.\n\n"
+                "It may be open in another program, or you may not have "
+                "permission to read it.")
+    if "no objects found" in low or "cannot open" in low or "damaged" in low \
+            or "repair" in low or "not a pdf" in low:
+        return (f"{name} could not be read as a PDF.\n\n"
+                "It may be damaged, or it may not really be a PDF.")
+    return f"{name}\n\n{text}"
+
+
 def _dpi_awareness() -> None:
     """Crisp text on scaled Windows displays."""
     try:
@@ -84,7 +124,12 @@ class PdfEditorApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         _dpi_awareness()
+        # The interface text size is a preference, so it is applied before
+        # anything is drawn - the fonts and the metrics follow from it.
+        self._scale = _saved_scale()
+        theme.set_scale(self._scale)
         self.fonts = theme.fonts()
+        self.scale_var = tk.StringVar(value=str(self._scale))
         self.configure(bg=theme.BG)
         self.title(APP_TITLE)
         self.geometry("1360x880")
@@ -128,6 +173,12 @@ class PdfEditorApp(tk.Tk):
         self._sync_tool_buttons()
         self._update_inspector()
         self._show_empty_state()
+        # Offer to become the default PDF app once, after the window is up.
+        self._default_prompt_job = self.after(900, self._maybe_offer_default)
+        # Accept PDFs dropped from Explorer onto the window.
+        self._drop_target = dnd.install(self)
+        self._drop_hover = False
+        self._poll_job = self.after(80, self._poll_drops)
 
     def _show_empty_state(self) -> None:
         """Friendly first-run screen instead of a blank canvas."""
@@ -175,7 +226,18 @@ class PdfEditorApp(tk.Tk):
         filemenu.add_command(label="Save As…", command=self.save_as)
         filemenu.add_separator()
         filemenu.add_command(label="Close document", command=self.close_doc)
+        filemenu.add_separator()
+        self.default_menu = filemenu
+        filemenu.add_command(label="Make default PDF app…",
+                             command=self.make_default_app)
+        # add_command() does not hand back an index, so ask the menu where
+        # the entry it just created ended up.
+        self.default_item = filemenu.index("end")
+        filemenu.add_command(label="Windows default apps…",
+                             command=self.open_default_apps)
+        filemenu.add_separator()
         filemenu.add_command(label="Exit", command=self.destroy)
+        filemenu.postcommand = self._update_file_menu
         menubar.add_cascade(label="File", menu=filemenu)
 
         editmenu = tk.Menu(menubar, tearoff=0)
@@ -191,6 +253,13 @@ class PdfEditorApp(tk.Tk):
         viewmenu.add_command(label="Zoom out", accelerator="Ctrl+-",
                              command=lambda: self.set_zoom(self.zoom / 1.15))
         viewmenu.add_command(label="Fit to window", command=self.fit_page)
+        viewmenu.add_separator()
+        sizemenu = tk.Menu(viewmenu, tearoff=0)
+        for name, factor in theme.SCALE_STEPS:
+            sizemenu.add_radiobutton(label=name, value=str(factor),
+                                     variable=self.scale_var,
+                                     command=self.set_interface_scale)
+        viewmenu.add_cascade(label="Interface text size", menu=sizemenu)
         viewmenu.add_separator()
         viewmenu.add_command(label="Turn page left",
                              command=lambda: self.turn_page(-90))
@@ -215,9 +284,10 @@ class PdfEditorApp(tk.Tk):
 
     def _build_shell(self) -> None:
         # ---------------- title bar ----------------
-        bar = tk.Frame(self, bg=theme.SURFACE, height=theme.TITLEBAR_H)
+        bar = tk.Frame(self, bg=theme.SURFACE, height=theme.titlebar_h())
         bar.pack(side=tk.TOP, fill=tk.X)
         bar.pack_propagate(False)
+        self.titlebar = bar
 
         left = tk.Frame(bar, bg=theme.SURFACE)
         left.pack(side=tk.LEFT, fill=tk.Y)
@@ -259,6 +329,13 @@ class PdfEditorApp(tk.Tk):
                                    icon_size=17, bg=theme.SURFACE,
                                    fg=theme.TEXT_2)
         self.help_btn.pack(side=tk.RIGHT, padx=(0, 4))
+        self.text_size_btn = IconButton(right, icon="text",
+                                        command=self._show_text_size_menu,
+                                        tooltip="Change the size of the "
+                                                "interface text", size=32,
+                                        icon_size=17, bg=theme.SURFACE,
+                                        fg=theme.TEXT_2)
+        self.text_size_btn.pack(side=tk.RIGHT, padx=(0, 4))
 
         # hairline under the title bar
         line = tk.Canvas(self, height=1, bg=theme.BG, highlightthickness=0,
@@ -277,9 +354,10 @@ class PdfEditorApp(tk.Tk):
 
     # ------------------------------------------------------------------
     def _build_rail(self, parent) -> None:
-        rail = tk.Frame(parent, bg=theme.SURFACE, width=theme.RAIL_W)
+        rail = tk.Frame(parent, bg=theme.SURFACE, width=theme.rail_w())
         rail.pack(side=tk.LEFT, fill=tk.Y)
         rail.pack_propagate(False)
+        self.rail_frame = rail
 
         self.tool_buttons: dict[str, IconButton] = {}
         tools = (("select", "cursor", "Select and move  (V)"),
@@ -354,9 +432,10 @@ class PdfEditorApp(tk.Tk):
 
     # ------------------------------------------------------------------
     def _build_inspector(self, parent) -> None:
-        panel = tk.Frame(parent, bg=theme.SURFACE, width=theme.INSPECTOR_W)
+        panel = tk.Frame(parent, bg=theme.SURFACE, width=theme.inspector_w())
         panel.pack(side=tk.RIGHT, fill=tk.Y)
         panel.pack_propagate(False)
+        self.inspector_frame = panel
 
         sep = tk.Canvas(panel, width=1, bg=theme.BG, highlightthickness=0, bd=0)
         sep.pack(side=tk.LEFT, fill=tk.Y)
@@ -370,7 +449,7 @@ class PdfEditorApp(tk.Tk):
         # contextual hint for the active tool
         self.hint = tk.Label(inner, text="", bg=theme.SURFACE, fg=theme.TEXT_2,
                              font=self.fonts.caption, justify=tk.LEFT,
-                             anchor="w", wraplength=theme.INSPECTOR_W - 2 * PAD)
+                             anchor="w", wraplength=theme.inspector_w() - 2 * theme.scaled(PAD))
         self.hint.pack(fill=tk.X, pady=(0, 2))
 
         # ---- text field ----
@@ -422,7 +501,7 @@ class PdfEditorApp(tk.Tk):
 
         # ---- signature ----
         SectionHeader(inner, "Signature").pack(fill=tk.X, pady=(12, 0))
-        inner_w = theme.INSPECTOR_W - 2 * PAD
+        inner_w = theme.inspector_w() - 2 * theme.scaled(PAD)
         RoundedButton(inner, "Load PNG file…", self.load_signature,
                       variant="gray", width=inner_w, height=28,
                       bg=theme.SURFACE, font=self.fonts.body,
@@ -499,7 +578,8 @@ class PdfEditorApp(tk.Tk):
         try:
             doc = PdfDocument(path)
         except Exception as exc:
-            messagebox.showerror("Cannot open", f"{path}\n\n{exc}")
+            messagebox.showerror("Cannot open",
+                                 _pdf_error_message(path, exc))
             return
         if self.doc:
             self.doc.close()
@@ -1382,6 +1462,239 @@ class PdfEditorApp(tk.Tk):
             return
         self.delete_selected()
 
+    # ==================================================================
+    # interface text size
+    # ==================================================================
+    def set_interface_scale(self, factor=None) -> None:
+        """Change the size of the interface text.
+
+        The choice is remembered, so the app comes up the same way next
+        time.  Everything redraws itself around the new size.
+        """
+        if factor is None:
+            try:
+                factor = float(self.scale_var.get())
+            except (TypeError, ValueError):
+                return
+        if not theme.set_scale(factor):
+            return
+        self._scale = theme.scale()
+        self.scale_var.set(str(self._scale))
+        prefs.put("interface_scale", self._scale)
+        self.fonts = theme.fonts()
+        self._rescale_ui()
+
+    def _rescale_ui(self) -> None:
+        """Re-lay out the interface after the text size changed."""
+        frames = []
+        bar = getattr(self, "titlebar", None)
+        if bar is not None:
+            frames.append((bar, "height", theme.titlebar_h()))
+        rail = getattr(self, "rail_frame", None)
+        if rail is not None:
+            frames.append((rail, "width", theme.rail_w()))
+        panel = getattr(self, "inspector_frame", None)
+        if panel is not None:
+            frames.append((panel, "width", theme.inspector_w()))
+        for frame, attr, value in frames:
+            try:
+                frame.configure(**{attr: value})
+            except Exception:
+                pass
+
+        for widget in self._descendants(self):
+            rescale = getattr(widget, "rescale", None)
+            if callable(rescale):
+                try:
+                    rescale()
+                except Exception:
+                    pass
+
+        try:
+            self.hint.configure(wraplength=theme.inspector_w()
+                                - 2 * theme.scaled(PAD))
+        except Exception:
+            pass
+        self.update_idletasks()
+        if self.doc:
+            self.render_page()
+
+    @staticmethod
+    def _descendants(widget):
+        """Every widget below this one."""
+        for child in widget.winfo_children():
+            yield child
+            yield from PdfEditorApp._descendants(child)
+
+    def _show_text_size_menu(self) -> None:
+        """The text sizes, in a small menu under the button."""
+        menu = tk.Menu(self, tearoff=0)
+        for name, factor in theme.SCALE_STEPS:
+            menu.add_radiobutton(label=name, value=str(factor),
+                                 variable=self.scale_var,
+                                 command=self.set_interface_scale)
+        try:
+            menu.post(self.text_size_btn.winfo_rootx(),
+                      self.text_size_btn.winfo_rooty()
+                      + self.text_size_btn.winfo_height())
+        finally:
+            menu.bind("<FocusOut>", lambda e: menu.unpost())
+
+    # ==================================================================
+    # drag and drop
+    # ==================================================================
+    def _poll_drops(self) -> None:
+        """Pick up files dropped on the window.
+
+        The OLE callbacks cannot touch Tk, so they leave the files on a
+        queue and this picks them up on the next tick.
+        """
+        self._collect_drops()
+        self._poll_job = self.after(80, self._poll_drops)
+
+    def _collect_drops(self) -> None:
+        """Take whatever was dropped on the window and open it."""
+        target = self._drop_target
+        if target is None:
+            return
+        hovering = bool(target.hovering)
+        if hovering != self._drop_hover:
+            self._drop_hover = hovering
+            self._set_drop_hint(hovering)
+        for path in target.take():
+            self._open_dropped(path)
+
+    def _open_dropped(self, path: str) -> None:
+        """Open a file that was dropped on the window."""
+        if not path.lower().endswith(".pdf"):
+            messagebox.showwarning(
+                "Not a PDF",
+                f"{os.path.basename(path)}\n\n"
+                "Only PDF files can be opened here.")
+            return
+        self.open_file(path)
+
+    def _set_drop_hint(self, on: bool) -> None:
+        """Show that a drop would be accepted."""
+        canvas = getattr(self, "canvas", None)
+        if canvas is None:
+            return
+        canvas.delete("drophint")
+        if not on:
+            return
+        w = max(200, canvas.winfo_width())
+        h = max(140, canvas.winfo_height())
+        canvas.create_rectangle(10, 10, w - 10, h - 10, outline=theme.ACCENT,
+                                width=2, dash=(6, 5), tags="drophint")
+        canvas.create_text(w / 2, h / 2, text="Drop to open", fill=theme.ACCENT,
+                           font=self.fonts.headline, tags="drophint")
+
+    # ==================================================================
+    # default PDF app
+    # ==================================================================
+    def destroy(self) -> None:
+        """Close the app, cancelling anything still queued for later."""
+        for attr in ("_default_prompt_job", "_poll_job"):
+            job = getattr(self, attr, None)
+            if job:
+                setattr(self, attr, None)
+                try:
+                    self.after_cancel(job)
+                except Exception:
+                    pass
+        target = getattr(self, "_drop_target", None)
+        if target is not None:
+            self._drop_target = None
+            try:
+                target.unregister()
+            except Exception:
+                pass
+        super().destroy()
+
+    def _update_file_menu(self) -> None:
+        """Keep the 'make default' entry honest about the current state."""
+        menu = getattr(self, "default_menu", None)
+        if menu is None:
+            return
+        index = getattr(self, "default_item", None)
+        if index is None:
+            return
+        if assoc.is_default():
+            menu.entryconfigure(index, label="Already the default PDF app",
+                                state="disabled")
+        else:
+            menu.entryconfigure(index, label="Make default PDF app…",
+                                state="normal")
+
+    def make_default_app(self) -> None:
+        """Register this app as a .pdf handler and hand over to Windows.
+
+        The registry entry is only half the job: Windows 10 and 11 keep the
+        real default in a protected UserChoice key, so the shell's own
+        "Open with" dialog is opened for the user to confirm.
+        """
+        if not assoc.is_windows():
+            messagebox.showinfo(
+                "Not available",
+                "Making a default PDF app is a Windows feature.")
+            return
+        if assoc.is_default():
+            messagebox.showinfo(
+                "Already the default",
+                "PDF Sign & Fill already opens .pdf files.")
+            return
+        if not assoc.register():
+            messagebox.showerror(
+                "Could not register",
+                "Windows refused the change.\n\n"
+                "You can still set it by hand in\n"
+                "Settings > Apps > Default apps.")
+            return
+
+        prefs.put("asked_default_app", True)
+        if assoc.offer_open_with():
+            DefaultAppResult(self, on_open_settings=assoc.open_default_apps)
+            return
+        if not assoc.is_frozen():
+            # Running from source: the registry entry still works for a
+            # double-click, but Windows will not list a .py in its
+            # "Open with" menu, so the packaged build is the better answer.
+            messagebox.showinfo(
+                "Registered",
+                "PDF Sign & Fill is now registered as a handler for .pdf "
+                "files.\n\n"
+                "Windows only lists programs in its 'Open with' menu if they "
+                "are an installed .exe, so for the full experience build a "
+                "copy with build_exe.bat and run that.")
+            return
+        # No .exe to offer (or the shell refused): send them to Settings.
+        assoc.open_default_apps()
+
+    def open_default_apps(self) -> None:
+        """Open Settings > Apps > Default apps."""
+        if not assoc.open_default_apps():
+            messagebox.showinfo(
+                "Open Settings manually",
+                "Press Windows + I, then go to\n"
+                "Apps > Default apps > .pdf")
+
+    def _maybe_offer_default(self) -> None:
+        """Ask once, on first run, whether to become the default PDF app."""
+        if not assoc.is_windows() or assoc.is_default():
+            return
+        if prefs.get("never_ask_default") or prefs.get("asked_default_app"):
+            return
+        # Opened from Explorer already? Then the user has chosen this app.
+        if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
+            return
+        prefs.put("asked_default_app", True)
+        DefaultAppPrompt(
+            self,
+            on_set=self.make_default_app,
+            on_dismiss=None,
+            on_never=lambda: prefs.put("never_ask_default", True),
+        )
+
     def show_help(self) -> None:
         messagebox.showinfo(
             "Keyboard shortcuts",
@@ -1449,7 +1762,48 @@ def _self_test(src: str, out: str) -> int:
     return 0
 
 
-def main() -> None:
+def _doctor() -> int:
+    """Report what this machine has, and what is missing."""
+    from pdfedit.diagnostics import doctor_text, has_failures, run_checks
+    results = run_checks()
+    text = doctor_text()
+    print(text)
+    if getattr(sys, "frozen", False):
+        # A windowed build has no console, so write the report to a file.
+        out = os.path.join(prefs.home(), "doctor-report.txt")
+        try:
+            os.makedirs(prefs.home(), exist_ok=True)
+            with open(out, "w", encoding="utf-8") as fh:
+                fh.write(text + "\n")
+        except OSError:
+            out = ""
+        try:
+            messagebox.showinfo("System check",
+                                f"The report was written to:\n\n{out}")
+        except Exception:
+            pass
+    return 1 if has_failures(results) else 0
+
+
+def _report_crash(exc: BaseException) -> None:
+    """Write a crash log and say so, instead of vanishing."""
+    import traceback
+    from pdfedit.diagnostics import write_crash_report
+    traceback.print_exception(type(exc), exc, exc.__traceback__)
+    path = write_crash_report(exc)
+    message = (f"{APP_TITLE} stopped unexpectedly.\n\n"
+               f"{type(exc).__name__}: {exc}")
+    if path:
+        message += f"\n\nA full report was written to:\n{path}"
+    try:
+        messagebox.showerror("Something went wrong", message)
+    except Exception:
+        pass
+
+
+def main() -> int:
+    if "--doctor" in sys.argv:
+        return _doctor()
     if "--selftest" in sys.argv:
         i = sys.argv.index("--selftest")
         if i + 2 >= len(sys.argv):
@@ -1459,7 +1813,11 @@ def main() -> None:
     app = PdfEditorApp()
     if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
         app.after(100, lambda: app.open_file(sys.argv[1]))
-    app.mainloop()
+    try:
+        app.mainloop()
+    except Exception as exc:
+        _report_crash(exc)
+        return 1
     return 0
 
 

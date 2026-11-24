@@ -32,6 +32,35 @@ CONTENT: list[tuple[str, object]] = [
     ("bullet", "The bar floating over the page turns pages and changes zoom."),
     ("bullet", "The orange dot next to the file name means unsaved changes."),
 
+    ("section", "Opening PDFs"),
+    ("para",
+     "You can also make this app the one Windows opens PDFs with."),
+    ("bullet", "Drag a PDF from Explorer onto the window and it opens."),
+    ("bullet", "File ▸ Make default PDF app… registers the app and walks you "
+               "through Windows' own “Open with” dialog - tick "
+               "“Always use this app” and you are done."),
+    ("bullet", "File ▸ Windows default apps… opens the system settings, if you "
+               "would rather set it by hand."),
+    ("bullet", "You are asked once, the first time the app starts. "
+               "“Don't ask again” in that offer turns it off for good."),
+
+    ("section", "Interface text size"),
+    ("bullet", "The T button in the title bar changes the size of the text "
+               "everywhere in the app."),
+    ("bullet", "View ▸ Interface text size does the same, with five sizes from "
+               "Small to Largest."),
+    ("bullet", "Your choice is remembered, so the app comes up the same way "
+               "next time."),
+
+    ("section", "If something goes wrong"),
+    ("bullet", "If the app stops unexpectedly, the reason is written to "
+               "error.log in %APPDATA%\\PDF Sign & Fill, and the window that "
+               "appears tells you where that file is."),
+    ("bullet", "Run the app with --doctor to get a report of anything this PC "
+               "is missing - Python, Tk, the PDF engine, the fonts."),
+    ("bullet", "A PDF that is password protected, damaged or simply not a PDF "
+               "is reported in words, not as an error code."),
+
     ("section", "Adding things to the page"),
     ("tool", ("text", "Text", "T",
               "Click on the ruled line where the words should sit.  The click "

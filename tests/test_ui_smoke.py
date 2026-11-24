@@ -42,6 +42,13 @@ class UiSmokeTest(unittest.TestCase):
         cls.pdf = make_form(os.path.join(cls.tmp, "form.pdf"))
         cls.sig = make_signature(os.path.join(cls.tmp, "sig.png"))
 
+        # Keep the app's preferences out of the real %APPDATA%, and stop the
+        # first-run "make this the default PDF app" offer from appearing
+        # in the middle of a test.
+        os.environ["PDF_SIGN_FILL_HOME"] = cls.tmp
+        from pdfedit import prefs
+        prefs.put("asked_default_app", True)
+
         from app import PdfEditorApp
         cls.app = PdfEditorApp()
         cls.app.update()

@@ -45,6 +45,13 @@ class ClickTestCase(unittest.TestCase):
         cls.pdf = make_form(os.path.join(cls.tmp, "form.pdf"))
         cls.sig = make_signature(os.path.join(cls.tmp, "sig.png"))
 
+        # Keep the app's preferences out of the real %APPDATA%, and stop the
+        # first-run "make this the default PDF app" offer from appearing
+        # in the middle of a test.
+        os.environ["PDF_SIGN_FILL_HOME"] = cls.tmp
+        from pdfedit import prefs
+        prefs.put("asked_default_app", True)
+
         from app import PdfEditorApp
         cls.app = PdfEditorApp()
         cls.app.update()
@@ -428,6 +435,69 @@ class InteractionTest(ClickTestCase):
         self.assertEqual(os.path.getsize(self.pdf), before)
         with open(self.pdf, "rb") as fh:
             self.assertEqual(fh.read(16), head)
+
+    def test_17_the_file_menu_offers_to_become_the_default_pdf_app(self):
+        """The entry exists and reports the real state."""
+        app = self.app
+        app._update_file_menu()
+        label = app.default_menu.entrycget(app.default_item, "label")
+        self.assertIn("default", label.lower())
+        state = app.default_menu.entrycget(app.default_item, "state")
+        self.assertIn(state, ("normal", "disabled"))
+
+    def test_18_the_first_run_offer_is_remembered(self):
+        """The offer is not shown twice."""
+        from pdfedit import prefs
+        prefs.put("asked_default_app", True)
+        self.assertTrue(prefs.get("asked_default_app"))
+        # and the app must not schedule another one behind our back
+        app = self.app
+        job = getattr(app, "_default_prompt_job", None)
+        if job is not None:
+            app.after_cancel(job)
+            app._default_prompt_job = None
+        app._maybe_offer_default()
+        # no new prompt window was created
+        prompts = [w for w in app.winfo_children()
+                   if isinstance(w, tk.Toplevel)]
+        self.assertEqual(prompts, [])
+
+    def test_19_the_text_size_control_resizes_the_interface(self):
+        """The size can be changed, and changed back."""
+        from pdfedit import theme
+        app = self.app
+        before = theme.fonts().body.actual("size")
+
+        app.set_interface_scale(1.35)
+        app.update()
+        bigger = theme.fonts().body.actual("size")
+        self.assertGreater(bigger, before)
+
+        app.set_interface_scale(1.0)
+        app.update()
+        self.assertEqual(theme.fonts().body.actual("size"), before)
+
+    def test_20_the_text_size_button_is_in_the_title_bar(self):
+        """There is a way to reach the setting without the menu."""
+        app = self.app
+        self.assertTrue(hasattr(app, "text_size_btn"))
+        app._update_file_menu()      # must not raise
+        self.assertTrue(app.text_size_btn.winfo_exists())
+
+    def test_21_a_pdf_dropped_on_the_window_opens(self):
+        """Drag and drop behaves like opening the file."""
+        from pdfedit import dnd
+        app = self.app
+        app.close_doc()
+        app.update()
+        self.assertIsNone(app.doc)
+
+        target = dnd.DropTarget(0)
+        target.pending.append(self.pdf)
+        app._drop_target = target
+        app._collect_drops()
+        app.update()
+        self.assertIsNotNone(app.doc)
 
 
 if __name__ == "__main__":

@@ -142,6 +142,8 @@ class IconButton(tk.Canvas):
         self.command = command
         self.size = size
         self.icon_size = icon_size
+        self._base_size = theme.design(size)
+        self._base_icon_size = theme.design(icon_size)
         self.fg = fg
         self.bg = bg
         self.toggle = toggle
@@ -169,6 +171,13 @@ class IconButton(tk.Canvas):
 
     def set_active(self, active: bool) -> None:
         self.active = active
+        self.redraw()
+
+    def rescale(self) -> None:
+        """Re-measure for the current interface text size."""
+        self.size = theme.scaled(self._base_size)
+        self.icon_size = theme.scaled(self._base_icon_size)
+        self.configure(width=self.size, height=self.size)
         self.redraw()
 
     def _on_enter(self, _e=None):
@@ -222,11 +231,17 @@ class RoundedButton(tk.Canvas):
     """A labelled pill button.  Variants: accent | gray | plain."""
 
     def __init__(self, parent, text: str = "", command=None, variant: str = "gray",
-                 width: int = 0, height: int = 28, icon: str = "",
+                 width: int = 0, height: int = 0, icon: str = "",
                  bg: str = theme.BG, font=None, tooltip: str = "", **kw):
-        if not width:
+        auto_width = not width
+        if auto_width:
             f = font or theme.fonts().body_emphasis
             width = f.measure(text) + (46 if icon else 30)
+        if not height:
+            height = theme.ctrl_h()
+        self._auto_width = auto_width
+        self._base_width = theme.design(width)
+        self._base_height = theme.design(height)
         super().__init__(parent, width=width, height=height, bg=bg,
                          highlightthickness=0, bd=0, **kw)
         self.text = text
@@ -251,6 +266,14 @@ class RoundedButton(tk.Canvas):
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
         self.configure(cursor="hand2" if enabled else "arrow")
+        self.redraw()
+
+    def rescale(self) -> None:
+        """Re-measure for the current interface text size."""
+        width = theme.scaled(self._base_width)
+        if self._auto_width:
+            width = self.font.measure(self.text) + (46 if self.icon else 30)
+        self.configure(width=width, height=theme.scaled(self._base_height))
         self.redraw()
 
     def _on_enter(self, _e=None):
@@ -313,8 +336,11 @@ class RoundedEntry(tk.Canvas):
     """A rounded text field with an embedded flat Entry."""
 
     def __init__(self, parent, textvariable=None, placeholder: str = "",
-                 height: int = 28, bg: str = theme.SURFACE,
+                 height: int = 0, bg: str = theme.SURFACE,
                  fg: str = theme.TEXT, tooltip: str = "", **kw):
+        if not height:
+            height = theme.ctrl_h()
+        self._base_height = theme.design(height)
         super().__init__(parent, height=height, bg=bg, highlightthickness=0,
                          bd=0, **kw)
         self.variable = textvariable
@@ -341,9 +367,15 @@ class RoundedEntry(tk.Canvas):
     def _layout(self):
         h = _dim(self, "h", 28)
         w = _dim(self, "w", 200)
-        self.entry.place(in_=self, x=10, y=(h - 22) / 2, width=max(10, w - 20),
-                         height=22)
+        eh = theme.scaled(24)
+        self.entry.place(in_=self, x=10, y=(h - eh) / 2, width=max(10, w - 20),
+                         height=eh)
         self.coords(self._win, 10, h / 2)
+
+    def rescale(self) -> None:
+        """Re-measure for the current interface text size."""
+        self.configure(height=theme.scaled(self._base_height))
+        self.redraw()
 
     def _set(self):
         if self.var.get() != self.variable.get():
@@ -385,6 +417,9 @@ class Stepper(tk.Canvas):
         self.lo, self.hi, self.step, self.decimals = lo, hi, step, decimals
         self.bg = bg
         self._hover = None
+        self._base_width = theme.design(width)
+        self._base_height = theme.design(height)
+        self._zone = theme.scaled(20)
         self.bind("<Motion>", self._on_motion)
         self.bind("<Leave>", lambda e: self._set_hover(None))
         self.bind("<Button-1>", self._on_click)
@@ -408,20 +443,28 @@ class Stepper(tk.Canvas):
 
     def _on_motion(self, event):
         w = _dim(self, "w", 92)
-        self._set_hover("-" if event.x < 20 else ("+" if event.x > w - 20 else None))
+        self._set_hover("-" if event.x < self._zone else
+                        ("+" if event.x > w - self._zone else None))
 
     def _on_click(self, event):
         w = _dim(self, "w", 92)
         v = self.value()
-        if event.x < 20:
+        if event.x < self._zone:
             v -= self.step
-        elif event.x > w - 20:
+        elif event.x > w - self._zone:
             v += self.step
         else:
             return
         v = max(self.lo, min(self.hi, v))
         if self.variable is not None:
             self.variable.set(round(v, self.decimals))
+        self.redraw()
+
+    def rescale(self) -> None:
+        """Re-measure for the current interface text size."""
+        self._zone = theme.scaled(20)
+        self.configure(width=theme.scaled(self._base_width),
+                       height=theme.scaled(self._base_height))
         self.redraw()
 
     def redraw(self):
@@ -456,6 +499,8 @@ class ColorSwatch(tk.Canvas):
         self.command = command
         self.bg = bg
         self._hover = False
+        self._base_width = theme.design(width)
+        self._base_height = theme.design(height)
         self.bind("<Enter>", self._on_enter)
         self.bind("<Leave>", self._on_leave)
         self.bind("<Button-1>", self._on_click)
@@ -466,6 +511,12 @@ class ColorSwatch(tk.Canvas):
 
     def set_color(self, color):
         self.color = color
+        self.redraw()
+
+    def rescale(self) -> None:
+        """Re-measure for the current interface text size."""
+        self.configure(width=theme.scaled(self._base_width),
+                       height=theme.scaled(self._base_height))
         self.redraw()
 
     def _on_enter(self, _e=None):
@@ -496,12 +547,18 @@ class SectionHeader(tk.Canvas):
     """A small uppercase section header with a hairline rule."""
 
     def __init__(self, parent, text: str, bg: str = theme.SURFACE, **kw):
+        self._base_height = theme.design(26)
         super().__init__(parent, height=26, bg=bg, highlightthickness=0, bd=0,
                          **kw)
         self.text = text
         self.bg = bg
         self.bind("<Configure>", lambda e: self.redraw())
         self.after(10, self.redraw)
+
+    def rescale(self) -> None:
+        """Re-measure for the current interface text size."""
+        self.configure(height=theme.scaled(self._base_height))
+        self.redraw()
 
     def redraw(self):
         self.delete("all")
@@ -519,11 +576,17 @@ class FloatingBar(tk.Canvas):
     """A translucent rounded bar that floats over the canvas."""
 
     def __init__(self, parent, height: int = 40, bg: str = theme.BG, **kw):
+        self._base_height = theme.design(height)
         super().__init__(parent, height=height, bg=bg, highlightthickness=0,
                          bd=0, **kw)
         self.bar_bg = bg
         self.bind("<Configure>", lambda e: self.redraw())
         self.after(10, self.redraw)
+
+    def rescale(self) -> None:
+        """Re-measure for the current interface text size."""
+        self.configure(height=theme.scaled(self._base_height))
+        self.redraw()
 
     def redraw(self):
         self.delete("bg")
@@ -560,6 +623,8 @@ class FloatingControls(tk.Canvas):
                  on_zoom_in=None, on_fit=None, on_rotate_left=None,
                  on_rotate_right=None, on_flip_v=None, on_flip_h=None,
                  height: int = 40, **kw):
+        self._base_width = theme.design(386)
+        self._base_height = theme.design(height)
         super().__init__(parent, width=386, height=height, bg=theme.BG,
                          highlightthickness=0, bd=0, **kw)
         self.on_prev = on_prev
@@ -595,36 +660,47 @@ class FloatingControls(tk.Canvas):
     def _layout(self):
         """Return the hit regions as (key, x0, x1, kind, payload)."""
         h = _dim(self, "h", 40)
-        pad = 6
+        pad = theme.scaled(6)
+        icon = theme.scaled(26)
+        page_w = theme.scaled(62)
+        zoom_w = theme.scaled(46)
+        sep = theme.scaled(13)
+        fit = theme.scaled(32)
         regions = []
         x = pad
-        regions.append(("prev", x, x + 26, "icon", "chevron_left"))
-        x += 26
-        regions.append(("pagelabel", x, x + 62, "label", None))
-        x += 62
-        regions.append(("next", x, x + 26, "icon", "chevron_right"))
-        x += 26
-        regions.append(("sep1", x, x + 13, "sep", None))
-        x += 13
-        regions.append(("zoomout", x, x + 26, "icon", "minus"))
-        x += 26
-        regions.append(("zoomlabel", x, x + 46, "label", None))
-        x += 46
-        regions.append(("zoomin", x, x + 26, "icon", "plus"))
-        x += 26
-        regions.append(("fit", x, x + 32, "icon", "fit"))
-        x += 32
-        regions.append(("sep2", x, x + 13, "sep", None))
-        x += 13
-        regions.append(("rotateleft", x, x + 26, "icon", "rotate_left"))
-        x += 26
-        regions.append(("rotateright", x, x + 26, "icon", "rotate_right"))
-        x += 26
-        regions.append(("flipv", x, x + 26, "icon", "flip_v"))
-        x += 26
-        regions.append(("fliph", x, x + 26, "icon", "flip_h"))
-        x += 26
+        regions.append(("prev", x, x + icon, "icon", "chevron_left"))
+        x += icon
+        regions.append(("pagelabel", x, x + page_w, "label", None))
+        x += page_w
+        regions.append(("next", x, x + icon, "icon", "chevron_right"))
+        x += icon
+        regions.append(("sep1", x, x + sep, "sep", None))
+        x += sep
+        regions.append(("zoomout", x, x + icon, "icon", "minus"))
+        x += icon
+        regions.append(("zoomlabel", x, x + zoom_w, "label", None))
+        x += zoom_w
+        regions.append(("zoomin", x, x + icon, "icon", "plus"))
+        x += icon
+        regions.append(("fit", x, x + fit, "icon", "fit"))
+        x += fit
+        regions.append(("sep2", x, x + sep, "sep", None))
+        x += sep
+        regions.append(("rotateleft", x, x + icon, "icon", "rotate_left"))
+        x += icon
+        regions.append(("rotateright", x, x + icon, "icon", "rotate_right"))
+        x += icon
+        regions.append(("flipv", x, x + icon, "icon", "flip_v"))
+        x += icon
+        regions.append(("fliph", x, x + icon, "icon", "flip_h"))
+        x += icon
         return regions, x + pad, h
+
+    def rescale(self) -> None:
+        """Re-measure for the current interface text size."""
+        self.configure(width=theme.scaled(self._base_width),
+                       height=theme.scaled(self._base_height))
+        self.redraw()
 
     def redraw(self):
         self.delete("all")
@@ -648,7 +724,8 @@ class FloatingControls(tk.Canvas):
             if kind == "icon":
                 self._hot.append((key, x0, x1))
                 color = theme.ACCENT if hovered else theme.TEXT_2
-                draw_icon(self, payload, (x0 + x1) / 2, h / 2, 14, color)
+                draw_icon(self, payload, (x0 + x1) / 2, h / 2,
+                          theme.scaled(14), color)
             else:
                 if key == "pagelabel":
                     text = f"{self.page} of {self.total}"

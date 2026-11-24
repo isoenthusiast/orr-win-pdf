@@ -74,6 +74,41 @@ every reader.
 Anything you have already added travels with the page and stays upright and
 readable — it is the page underneath that turns, not your writing.
 
+### Opening PDFs
+
+Three ways in, and the last two are optional:
+
+| | how |
+|---|---|
+| drag and drop | **drag a PDF from Explorer onto the app** and it opens, with the window showing that a drop will be taken |
+| the file menu | `File ▸ Make default PDF app…` registers the app, then walks you through Windows' own "Open with" dialog — tick *Always use this app* |
+| by hand | `File ▸ Windows default apps…` opens Settings ▸ Apps ▸ Default apps |
+
+Making the app the default is a per-user change: it writes to your own
+registry (`HKCU`), needs no administrator rights, and is undone the same way.
+
+### Making the text bigger
+
+The interface text can be resized at any time — the **T button** in the title
+bar, or `View ▸ Interface text size`. There are five sizes, from *Small* to
+*Largest*, and the choice is remembered, so the app comes up the same way next
+time. Everything scales with it: the panels, the buttons, the floating bar and
+the icon rail.
+
+![The interface at the largest text size](docs/app-text-largest.png)
+
+### If something goes wrong
+
+The app never disappears without saying something:
+
+* a crash is written to `%APPDATA%\PDF Sign & Fill\error.log`, and the window
+  that appears tells you where that file is;
+* `app.py --doctor` (or `PDF Sign and Fill.exe --doctor`) prints a report of
+  everything this PC is missing — Python, Tk, PyMuPDF, Pillow, fonts, and the
+  Visual C++ runtime the PDF engine needs;
+* opening a file that is password protected, damaged, or missing tells you
+  which of those it is, in words, instead of printing a raw error.
+
 ---
 
 **Python 3.10+ · PyMuPDF · Tkinter · Pillow** — 2 third-party packages, no
@@ -135,18 +170,30 @@ pdfedit/icons.py       the 23 vector icons
 pdfedit/engine.py      the PDF engine (no UI imports) - overlays, export
 pdfedit/transform.py   page rotation / flip maths (visible space + PDF space)
 pdfedit/help.py        the built-in guide (Help ▸ How to use)
+pdfedit/assoc.py       .pdf file association (Windows registry, per user)
+pdfedit/prefs.py       the small JSON settings file in %APPDATA%
+pdfedit/dialog.py      the themed "make this the default?" dialogs
+pdfedit/diagnostics.py the system check behind `app.py --doctor`
+pdfedit/dnd.py         drop a PDF from Explorer onto the window
 pdfedit/__init__.py
 tools/make_demo.py     generates a demo form + signature PNG to try it with
 tools/make_icon.py     generates app.ico
 tools/pdfsign.spec     PyInstaller build for the standalone .exe
 tools/verify_exe.py    checks a packaged build (headless + GUI screenshot)
+tools/check_exe_deps.py reads the .exe import table: is anything missing?
 tests/test_engine.py   16 engine tests, incl. rotation and the rotated-page test
-tests/test_ui_clicks.py 16 click-by-click interaction tests
+tests/test_ui_clicks.py 21 click-by-click interaction tests
 tests/test_ui_smoke.py 5 UI tests: drives the real app and screenshots it
+tests/test_assoc.py    15 tests for the file association and the settings file
+tests/test_dnd.py      8 tests for dropping a PDF from Explorer
+tests/test_diagnostics.py 13 tests for the system check and the text scaling
 tests/screenshot.py    window capture helper (works without a live desktop)
 docs/ROTATION.md       why rotated pages need special care
 docs/icon-sheet.png    every icon in one image
 docs/screenshot.png    the packaged app, running
+docs/app-text-normal.png   the interface at the normal text size
+docs/app-text-largest.png  the interface at the largest text size
+docs/prompt-default-app.png  the "make this the default PDF app?" offer
 LICENSE                GNU Affero General Public License v3.0
 run.bat                one-click launcher (sets up the venv on first run)
 build_exe.bat          one-click packaging into dist\
@@ -221,13 +268,49 @@ rather than the page in the file.
 build_exe.bat
 ```
 
-Produces **`dist\PDF Sign and Fill.exe`** — one self-contained file, **~32 MB**,
+Produces **`dist\PDF Sign and Fill.exe`** — one self-contained file, **~33 MB**,
 that runs on any 64-bit Windows machine with no Python installed.
 
 No binaries are published in this repository: build your own copy, so the
 thing you run is one you built and can audit. If you do redistribute a
 built copy, the AGPL requires the corresponding source and the licence to
 travel with it — this repository *is* the corresponding source.
+
+### Running it on a new Windows 11 PC
+
+The `.exe` needs nothing installed. It is a 64-bit build (it runs on x64 and
+on ARM Windows 11 through emulation) and it **carries the Microsoft Visual
+C++ runtime with it** — the PDF engine is C++, and Windows 11 does not ship
+that runtime, so a build that left it out would fail to start on a clean
+machine with `MSVCP140.dll was not found`.
+
+| | requirement |
+|---|---|
+| Windows | 10 or 11, 64-bit |
+| Installed | nothing — no Python, no runtime, no .NET |
+| Internet | not needed |
+| Disk | ~35 MB for the .exe, ~120 MB while it unpacks itself into `%TEMP%` |
+
+If you build it from source instead, `run.bat` does the work: it finds
+Python 3.11+, creates a virtualenv and installs the two packages. The first
+run needs an internet connection; after that it does not.
+
+**If Windows shows a blue warning instead of opening the app**, that is
+SmartScreen: the build is not signed, so Windows cannot vouch for it. Click
+*More info* → *Run anyway*. (Signing it properly costs a code-signing
+certificate per year; for a personal tool this is the honest trade.)
+
+**To check a PC before handing it over**, run the .exe with `--doctor`:
+
+```
+"PDF Sign and Fill.exe" --doctor
+```
+
+It prints — or, in the windowed build, writes to
+`%APPDATA%\PDF Sign and Fill\doctor-report.txt` — exactly what that machine
+has and what it is missing. The build does the same check on itself:
+`tools/check_exe_deps.py` reads the import table of the finished `.exe` and
+fails the build if anything is missing.
 
 | | |
 |---|---|
@@ -262,10 +345,19 @@ The bundle it unpacks into contains everything the app needs:
 | `python314.dll` + `base_library.zip` | the bundled interpreter and standard library |
 | `tcl86t.dll`, `tk86t.dll`, `_tkinter.pyd` | the Tk runtime (the UI) |
 | `PIL\_imaging*.pyd` | Pillow (the signature preview) |
+| `msvcp140.dll`, `vcruntime140*.dll` | the Visual C++ runtime, **carried with the app** |
 
-So the answer to "is it independent of dependent libraries?" is **yes**: the
-only things it needs from the machine are Windows itself and the Visual C++
-runtime that Windows 10/11 already ships.
+So the answer to "is it independent of dependent libraries?" is **yes**: the only
+thing it needs from the machine is Windows itself.
+
+The Visual C++ runtime is the one that needs saying twice, because Windows
+11 does **not** ship it — it only exists on a PC where somebody installed the
+redistributable. MuPDF's engine is C++ and imports `MSVCP140.dll`, so a build
+that relied on the machine having it would start perfectly on the developer's
+PC and then fail on a clean one with *"MSVCP140.dll was not found"*. The spec
+therefore bundles the runtime with the app, and `tools/check_exe_deps.py`
+reads the finished `.exe`'s import table to prove that nothing else is
+missing.
 
 Two things the spec deliberately keeps out, which together save ~50 MB:
 
@@ -290,22 +382,31 @@ Two practical notes:
 .\.venv\Scripts\python -m unittest discover -s tests -v
 ```
 
-37 tests, ~2 seconds:
+75 tests, ~3 seconds:
 
 * **16 engine tests** — the exported PDF really contains the text/image/marks,
   the source file is untouched, exporting twice is idempotent, every mark
   lands **exactly** where it was clicked (including on `/Rotate 90` pages, see
   `docs/ROTATION.md`), a turned page is saved turned, and the preview matches
   the export pixel for pixel.
-* **16 click-by-click tests** — these drive the *real* Tk bindings with
+* **21 click-by-click tests** — these drive the *real* Tk bindings with
   `event_generate`, the same path a mouse takes, and assert the state after
   every single click: click to select (never to append), click empty space to
   append, drag to move, drag the corner handle to resize, `Del` to delete,
   `Ctrl+Z` to undo, letter shortcuts ignored while typing, a click without
-  movement creating no undo step.
+  movement creating no undo step, the text-size control resizing the fonts,
+  and a dropped PDF opening like a double-click.
 * **5 UI smoke tests** — open the demo form, drop a text field, a tick, a
   cross and a signature through the actual handlers, export, and screenshot
   the running app.
+* **15 association tests** — the registry entries are written, read back and
+  removed again (in a throw-away key, never the real `.pdf` one), and
+  another app's choice is left alone.
+* **8 drag-and-drop tests** — the file names are read out of a `CF_HDROP`
+  handle built by hand, exactly as Explorer's drop delivers them.
+* **13 system-check tests** — the report covers every prerequisite, the
+  machine running the tests passes its own check, and the text scaling
+  survives being turned up and back down.
 
 ---
 

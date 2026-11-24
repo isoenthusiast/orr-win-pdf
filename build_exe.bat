@@ -16,9 +16,17 @@ echo Installing PyInstaller...
 echo Building...
 ".venv\Scripts\python.exe" -m PyInstaller --clean --noconfirm tools\pdfsign.spec || goto :fail
 
+REM ---- check the result actually runs on a clean PC -------------------
+echo.
+echo Checking the dependencies...
+".venv\Scripts\python.exe" tools\check_exe_deps.py || goto :fail
+
+echo.
+echo Verifying the build...
+".venv\Scripts\python.exe" tools\verify_exe.py || goto :fail
+
 echo.
 echo Done:  dist\PDF Sign and Fill.exe
-echo Verify with:  .venv\Scripts\python tools\verify_exe.py
 goto :eof
 
 :fail
