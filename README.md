@@ -196,6 +196,7 @@ docs/screenshot.png    the packaged app, running
 docs/app-text-normal.png   the interface at the normal text size
 docs/app-text-largest.png  the interface at the largest text size
 docs/prompt-default-app.png  the "make this the default PDF app?" offer
+docs/about.png           the About box: version, licence and links
 LICENSE                GNU Affero General Public License v3.0
 CHANGELOG.md           what changed in each version
 run.bat                one-click launcher (sets up the venv on first run)
