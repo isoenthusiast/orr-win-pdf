@@ -9,6 +9,10 @@ private-information-removal process, and the ticket was created from that page.
 - **Type of Issue:** `Errors, problems; plus API rate-limits, Actions workflow issues, migration to GitHub`
 - **Body:** the exact text below (plain text, no attachment)
 
+**Ticket: [#5055506](https://help.github.com/support/tickets) — status: Open, priority: Normal.**
+Created 2026-11-25. Watch for GitHub's reply at the account's GitHub address; they may ask
+for more detail before they will action the server-side cleanup.
+
 ---
 
 Request to permanently remove two dangling commits that expose personal information (a local
