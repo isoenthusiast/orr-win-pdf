@@ -1,5 +1,7 @@
 # PDF Sign & Fill
 
+**Version 1.1.0** · [changelog](CHANGELOG.md) · [releases](https://github.com/isoenthusiast/orr-win-pdf/releases)
+
 A small Windows desktop app to **open a PDF and sign/fill it**:
 
 > **Open source, free software.** No pre-built binaries are published here —
@@ -195,6 +197,7 @@ docs/app-text-normal.png   the interface at the normal text size
 docs/app-text-largest.png  the interface at the largest text size
 docs/prompt-default-app.png  the "make this the default PDF app?" offer
 LICENSE                GNU Affero General Public License v3.0
+CHANGELOG.md           what changed in each version
 run.bat                one-click launcher (sets up the venv on first run)
 build_exe.bat          one-click packaging into dist\
 ```
@@ -382,7 +385,7 @@ Two practical notes:
 .\.venv\Scripts\python -m unittest discover -s tests -v
 ```
 
-77 tests, ~3 seconds:
+82 tests, ~3 seconds:
 
 * **16 engine tests** — the exported PDF really contains the text/image/marks,
   the source file is untouched, exporting twice is idempotent, every mark
@@ -407,6 +410,8 @@ Two practical notes:
 * **13 system-check tests** — the report covers every prerequisite, the
   machine running the tests passes its own check, and the text scaling
   survives being turned up and back down.
+* **5 version tests** — the number in the About box, the README and the
+  changelog cannot drift apart.
 
 ---
 

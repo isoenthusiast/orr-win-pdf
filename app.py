@@ -62,6 +62,7 @@ from pdfedit.widgets import (  # noqa: E402
 )
 
 APP_TITLE = "PDF Sign & Fill"
+APP_VERSION = "1.1.0"
 HANDLE = 6
 PAD = 16
 
@@ -1711,7 +1712,7 @@ class PdfEditorApp(tk.Tk):
     def show_about(self) -> None:
         messagebox.showinfo(
             "About PDF Sign & Fill",
-            f"{APP_TITLE}\n\n"
+            f"{APP_TITLE} {APP_VERSION}\n\n"
             "A small, portable PDF form filler.\n"
             "Type on the lines, add ticks and crosses, sign with your own PNG.\n\n"
             "Your original file is never modified - every export writes a "
